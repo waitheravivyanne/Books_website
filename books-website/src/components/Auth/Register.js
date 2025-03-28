@@ -11,21 +11,28 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("Submitting:", { email, password }); // Add this line
+    console.log("Submitting:", { email, password });
+
+    // Basic client-side validation
+    if (!email || !password) {
+      setError('Please fill all fields');
+      return;
+    }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/register', { 
-        email, 
-        password 
-      });
+      const response = await axios.post('/api/register',
+        { email, password },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      localStorage.setItem('access_token', response.data.access_token);
       setSuccess(response.data.message);
       setError('');
-      
-      // Redirect to login page after 2 seconds
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
-      
+      navigate('/books');
     } catch (err) {
       setError(err.response?.data?.error || 'Registration failed');
       setSuccess('');
@@ -33,7 +40,7 @@ const Register = () => {
   };
 
   return (
-    <div className="auth-container">
+    <div className="auth-form">
       <h2>Register</h2>
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
@@ -66,3 +73,32 @@ const Register = () => {
 };
 
 export default Register;
+
+// return (
+//   <div className="auth-form">
+//     <h2>Register</h2>
+//     {error && <div className="error">{error}</div>}
+//     {success && <div className="success">{success}</div>}
+//     <form onSubmit={handleSubmit}>
+//       <input
+//         type="email"
+//         placeholder="Email"
+//         value={email}
+//         onChange={(e) => setEmail(e.target.value)}
+//         required
+//       />
+//       <input
+//         type="password"
+//         placeholder="Password"
+//         value={password}
+//         onChange={(e) => setPassword(e.target.value)}
+//         required
+//         minLength="8"
+//       />
+//       <button type="submit">Register</button>
+//     </form>
+//   </div>
+// );
+// };
+
+// export default Register;

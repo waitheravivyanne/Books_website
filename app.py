@@ -6,7 +6,7 @@ import os
 from functools import wraps
 from flask_mail import Mail, Message
 from flask_cors import CORS
-
+# from app import Book
 
 app = Flask(__name__)
 CORS(app)
@@ -59,6 +59,7 @@ def send_verification_email(email, token):
     except Exception as e:
         print(f"Failed to send email: {str(e)}")
         return False
+
 # Decorators
 def admin_required(f):
     @wraps(f)
@@ -77,70 +78,64 @@ def admin_required(f):
 # Auth Routes
 @app.route('/api/register', methods=['POST'])
 def register():
-    data = request.get_json()
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
 
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    email = data.get('email')
-    password = data.get('password')
-    if not email:
-        return jsonify({'error': 'Email is required'}), 400
-    if not password:
-        return jsonify({'error': 'Password is required'}), 400
-    if len(password) < 8:
-        return jsonify({'error': 'Password must be at least 8 characters'}), 400
-    
-    if User.query.filter_by(email=email).first():
-        return jsonify({'error': 'Email already registered'}), 400
-    
-    access_token = str(uuid.uuid4())
-    new_user = User(
-        email=email,
-        password_hash=generate_password_hash(password),
-        access_token=access_token
-    )
-    db.session.add(new_user)
-    email_sent = send_verification_email(email, access_token)
-  
-    if not email_sent:
-        db.session.rollback()  # Undo the user creation
-        return jsonify({'error': 'Failed to send verification email'}), 500
-    db.session.commit()
-    return jsonify({
-        'message': 'User registered successfully. Please check your email for verification.',
-        'access_token': access_token
-    }), 201
-    
-    # Send verification email
-    if not send_verification_email(email, access_token):
-        return jsonify({'error': 'Failed to send verification email'}), 500
-    
-    return jsonify({
-        'message': 'User registered successfully. Please check your email for verification.',
-        'access_token': access_token
-    }), 201
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
 
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already exists'}), 409
+
+        hashed_password = generate_password_hash(password)
+        access_token = str(uuid.uuid4())
+        
+        new_user = User(
+            email=email,
+            password_hash=hashed_password,
+            access_token=access_token,
+            is_verified=False
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Registration successful',
+            'access_token': access_token
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({'error': 'Invalid credentials'}), 401
-    
-    if not check_password_hash(user.password_hash, password):
-        return jsonify({'error': 'Invalid credentials'}), 401
-    
-    if not user.is_verified:
-        return jsonify({'error': 'Please verify your email first'}), 403
-    
-    return jsonify({
-        'message': 'Login successful',
-        'access_token': user.access_token,
-        'is_admin': user.is_admin
-    }), 200
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+
+        user = User.query.filter_by(email=email).first()
+
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({'error': 'Invalid credentials'}), 401
+
+        if not user.is_verified:
+            return jsonify({'error': 'Please verify your email first'}), 403
+
+        return jsonify({
+            'message': 'Login successful',
+            'access_token': user.access_token,
+            'is_admin': user.is_admin
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/verify-email', methods=['GET'])
 def verify_email():
@@ -159,6 +154,15 @@ def verify_email():
     db.session.commit()
     
     return jsonify({'message': 'Email verified successfully'}), 200
+
+@app.route('/api/verify-token', methods=['GET'])
+def verify_token():
+    token = request.headers.get('Authorization')
+    user = User.query.filter_by(access_token=token).first()
+    return jsonify({
+        'valid': bool(user),
+        'is_admin': user.is_admin if user else False
+    })
 
 # Book Routes
 @app.route('/api/books', methods=['GET'])
@@ -260,6 +264,70 @@ def get_users():
         'is_admin': user.is_admin
     } for user in users]
     return jsonify(users=user_list), 200
+
+def generate_simple_dummy_books(count=5):
+    titles = [
+        "Python Programming Guide",
+        "Web Development with Flask",
+        "JavaScript Essentials",
+        "Database Systems",
+        "Advanced Algorithms",
+        "Machine Learning Basics",
+        "The Art of Code",
+        "Software Engineering Principles",
+        "Clean Code Handbook",
+        "System Design Patterns"
+    ]
+    
+    contents = [
+        "Comprehensive guide to Python programming language...",
+        "Build web applications using Flask framework...",
+        "Learn JavaScript from the ground up...",
+        "Understanding database management systems...",
+        "Advanced algorithmic concepts explained...",
+        "Introduction to machine learning concepts...",
+        "Exploring the artistry behind good code...",
+        "Fundamental principles of software engineering...",
+        "How to write maintainable and clean code...",
+        "Common system design patterns and their uses..."
+    ]
+    
+    books = []
+    for i in range(min(count, len(titles))):
+        books.append(Book(
+            title=titles[i],
+            content=contents[i],
+            access_level=1 if i < 7 else 2  # First 7 are free, last 3 premium
+        ))
+    return books
+
+DUMMY_BOOKS = [
+    {
+        "title": "The Secret of Python",
+        "content": "This book reveals all the hidden secrets of Python programming...",
+        "access_level": 1
+    },
+    {
+        "title": "Flask for Beginners",
+        "content": "Learn how to build web applications with Flask from scratch...",
+        "access_level": 1
+    },
+    {
+        "title": "Advanced React Patterns",
+        "content": "Master advanced React concepts and design patterns...",
+        "access_level": 2
+    },
+    {
+        "title": "Database Design Essentials",
+        "content": "Everything you need to know about designing efficient databases...",
+        "access_level": 1
+    },
+    {
+        "title": "Premium: The Art of Programming",
+        "content": "Exclusive content for premium members about programming artistry...",
+        "access_level": 2
+    }
+]
 
 if __name__ == '__main__':
     with app.app_context():
